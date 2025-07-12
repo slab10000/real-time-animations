@@ -8,20 +8,16 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import com.animations.real_time_animations.ui.theme.RealtimeanimationsTheme
 import kotlinx.coroutines.android.awaitFrame
-import kotlinx.coroutines.delay
-import java.lang.Thread.sleep
+import kotlin.random.Random
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,49 +26,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             RealtimeanimationsTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    val dotDrawing = remember { mutableStateOf(Dot(position = Offset(100f,100f))) }
-                    val screenDimensions = Offset(resources.displayMetrics.widthPixels.toFloat(), resources.displayMetrics.heightPixels.toFloat()).also { println("estas son las dimensiones $it") }
-                    var positionOnX: Float
-                    var positionOnY: Float
-                    var velocityOnX: Float
-                    var velocityOnY: Float
+                    val screenDimensions = Offset(resources.displayMetrics.widthPixels.toFloat(), resources.displayMetrics.heightPixels.toFloat())
+
+                    val groupOfDotsDrawing = remember { mutableStateOf(GroupOfDotsAndLines(screenDimensions = screenDimensions, numberOfDots = 100)) }
 
                     LaunchedEffect(Unit) {
                         while (true) {
                             awaitFrame()
-
-                            positionOnX = dotDrawing.value.position.x + dotDrawing.value.velocity.x
-                            velocityOnX = dotDrawing.value.velocity.x
-
-                            /** Check X overflow **/
-                            when{
-                                positionOnX > screenDimensions.x -> {
-                                    positionOnX -= positionOnX - screenDimensions.x
-                                    velocityOnX = -velocityOnX
-                                }
-
-                                positionOnX < 0 -> {
-                                    positionOnX = -positionOnX
-                                    velocityOnX = -velocityOnX
-                                }
-                            }
-
-                            positionOnY = dotDrawing.value.position.y + dotDrawing.value.velocity.y
-                            velocityOnY = dotDrawing.value.velocity.y
-
-                            /** Check Y overflow **/
-                            when {
-                                positionOnY > screenDimensions.y -> {
-                                    positionOnY -= positionOnY - screenDimensions.y
-                                    velocityOnY = -velocityOnY
-                                }
-                                positionOnY < 0 -> {
-                                    positionOnY = -positionOnY
-                                    velocityOnY = -velocityOnY
-                                }
-                            }
-
-                            dotDrawing.value = dotDrawing.value.copy(position = Offset(positionOnX, positionOnY), velocity = Offset(velocityOnX, velocityOnY))
+                            groupOfDotsDrawing.value = groupOfDotsDrawing.value.next()
                         }
                     }
                     Box(modifier = Modifier.fillMaxSize()){
@@ -80,13 +41,26 @@ class MainActivity : ComponentActivity() {
                         Canvas(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(color = Color(0xffa3b18a)),
+//                                .background(color = Color(0xffa3b18a)),
+                                .background(color = Color.Black),
                         ) {
-                            drawCircle(
-                                color = Color.Black,
-                                radius = 10f,
-                                center = dotDrawing.value.position,
-                            )
+                            groupOfDotsDrawing.value.lines.forEach { line ->
+                                drawLine(
+                                    color = Color.White,
+                                    start = line.first,
+                                    end = line.second,
+                                    strokeWidth = 10 - (9 * (line.first - line.second).getDistance() / threshHoldDistance),
+                                    alpha = 1 - (1 * (line.first - line.second).getDistance() / threshHoldDistance)
+                                )
+                            }
+
+                            groupOfDotsDrawing.value.dots.forEach {
+                                drawCircle(
+                                    color = Color.White,
+                                    radius = 10f,
+                                    center = it.position,
+                                )
+                            }
                         }
                     }
                 }
@@ -95,7 +69,114 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Class for 1 Dot **/
 data class Dot(
     var position: Offset = Offset(x = 100f, y = 100f),
-    var velocity: Offset = Offset(x = 10f, y = 10f)
-)
+    var velocity: Offset = Offset(x = 1f, y = 1f)
+){
+
+    fun next(screenDimensions: Offset): Dot{
+        var positionOnX: Float
+        var positionOnY: Float
+        var velocityOnX: Float
+        var velocityOnY: Float
+
+        positionOnX = position.x + velocity.x * dampingCoefficient
+        velocityOnX = velocity.x
+
+        /** Check X overflow **/
+        when{
+            positionOnX > screenDimensions.x -> {
+                positionOnX -= positionOnX - screenDimensions.x
+                velocityOnX = -velocityOnX
+            }
+
+            positionOnX < 0 -> {
+                positionOnX = -positionOnX
+                velocityOnX = -velocityOnX
+            }
+        }
+
+        positionOnY = position.y + velocity.y * dampingCoefficient
+        velocityOnY = velocity.y
+
+        /** Check Y overflow **/
+        when {
+            positionOnY > screenDimensions.y -> {
+                positionOnY -= positionOnY - screenDimensions.y
+                velocityOnY = -velocityOnY
+            }
+            positionOnY < 0 -> {
+                positionOnY = -positionOnY
+                velocityOnY = -velocityOnY
+            }
+        }
+        return Dot(position = Offset(positionOnX, positionOnY), velocity = Offset(velocityOnX,velocityOnY))
+    }
+
+     infix fun distanceTo(anotherDot: Dot): Float{
+        return (position - anotherDot.position).getDistance()
+    }
+}
+
+data class GroupOfDotsAndLines(
+    val screenDimensions: Offset,
+    val numberOfDots: Int = 0,
+    var dots: Array<Dot> = Array(numberOfDots){ Dot(
+        position = Offset(Random.nextInt(0, screenDimensions.x.toInt()).toFloat(), Random.nextInt(0,screenDimensions.y.toInt()).toFloat()),
+        velocity = Offset(getDotVelocity(), getDotVelocity()),
+    )
+    },
+    var lines:MutableList<Pair<Offset, Offset>> = arrayListOf()
+){
+    fun next(): GroupOfDotsAndLines{
+        return GroupOfDotsAndLines(
+            screenDimensions = screenDimensions,
+            numberOfDots = numberOfDots,
+            dots = dots.map { it.next(screenDimensions) }.toTypedArray(),
+            lines = nextArrayOfLines()
+        )
+    }
+
+    private fun nextArrayOfLines(): MutableList<Pair<Offset, Offset>>{
+        val newLines: MutableList<Pair<Offset, Offset>> = arrayListOf()
+        dots.forEachIndexed{ index, dot ->
+            for (i in (index + 1) until dots.size){
+                val followingDot = dots[i]
+                if(dot distanceTo followingDot < threshHoldDistance){
+                    newLines.add(Pair(dot.position, followingDot.position))
+                }
+            }
+        }
+        return newLines
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as GroupOfDotsAndLines
+
+        if (numberOfDots != other.numberOfDots) return false
+        if (!dots.contentEquals(other.dots)) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = numberOfDots
+        result = 31 * result + dots.contentHashCode()
+        return result
+    }
+
+    companion object{
+        private fun getDotVelocity() = when (Random.nextInt(0,2)){
+            0 -> -1 * Random.nextFloat()
+            else -> 1 * Random.nextFloat()
+        }
+    }
+
+}
+
+const val threshHoldDistance = 200f
+const val dampingCoefficient = 0.5f
